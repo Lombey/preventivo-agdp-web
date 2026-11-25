@@ -62,10 +62,15 @@ const kvGuardar = (k, v) => idb('kv', 'readwrite', s => s.put(v, k));
 const kvBorrar = k => idb('kv', 'readwrite', s => s.delete(k));
 
 /* ---------- Servidor ---------- */
-async function api(accion, datos){
+async function api(accion, datos, ms){
   if(!CFG.API_URL || CFG.API_URL.indexOf('http') !== 0) throw new Error('Falta configurar la URL del servidor.');
-  const r = await fetch(CFG.API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(Object.assign({accion, token: S.sesion && S.sesion.token}, datos || {}))});
+  // ms corta la espera: con señal débil el pedido puede quedar colgado minutos.
+  const ctl = ms ? new AbortController() : null, t = ms ? setTimeout(() => ctl.abort(), ms) : 0;
+  let r;
+  try{
+    r = await fetch(CFG.API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, signal: ctl ? ctl.signal : undefined,
+      body: JSON.stringify(Object.assign({accion, token: S.sesion && S.sesion.token}, datos || {}))});
+  } finally { clearTimeout(t); }
   const j = await r.json();
   if(!j.ok){ const e = new Error(j.error || 'Error del servidor.'); e.servidor = true; e.sesionVencida = j.sesionVencida; throw e; }
   return j;
@@ -125,6 +130,39 @@ async function ingresar(){
 }
 function cerrarSesion(redibujar){ S.sesion = null; localStorage.removeItem('sesion'); S.pant = 'lista'; S.sop.sel = null; if(redibujar !== false) render(); }
 
+/* ---------- BTH ---------- */
+// El checklist se abre con un número de BTH bien formado. La búsqueda en el padrón es solo un aviso:
+// el servidor vuelve a controlar el BTH contra TABLET al recibir el caso.
+const bthListo = f => !!f && /^\d{3,4}$/.test(f.bth || '');
+const BTH_ESPERA_MS = 8000;
+let bthTimer = 0, bthSeq = 0;
+function bthEstadoHTML(f){
+  if(!bthListo(f)) return '';
+  const nuevo = f.tipo === 'INSTALACION' ? '<br><button class="textbtn" style="padding:4px 0" data-act="bthnuevo">Es un equipo nuevo</button>' : '';
+  if(f.bthInfo === 'buscando') return '<div class="ro">Buscando el equipo…</div>';
+  if(f.bthInfo === null) return `<div class="ro bad">Ese BTH no figura en el padrón. Revisá la pantalla INFO. Podés seguir cargando: Soporte lo controla.${nuevo}</div>`;
+  if(f.bthInfo === 'offline') return '<div class="ro">Sin señal: el BTH se controla al enviar. <button class="textbtn" style="padding:0" data-act="buscarbth">Buscar de nuevo</button></div>';
+  if(f.bthInfo && f.bthInfo.nuevo) return '<div class="ro">Equipo nuevo, todavía no figura en el padrón. Soporte lo revisa.</div>';
+  if(f.bthInfo) return `<div class="ro">Equipo encontrado. Tipo de tolva: ${esc(f.bthInfo.tolva || 'sin dato')}</div>`;
+  return '';
+}
+function pintarBthEstado(){
+  const el = $('#bthEstado'); if(!el || !S.form) return;
+  el.innerHTML = bthEstadoHTML(S.form);
+  el.querySelectorAll('[data-act]').forEach(b => b.onclick = ev => { ev.preventDefault(); accion(b.dataset.act); });
+}
+async function buscarBth(){
+  const f = S.form; if(!bthListo(f)) return;
+  const seq = ++bthSeq, b = f.bth;
+  f.bthInfo = 'buscando'; pintarBthEstado();
+  let info;
+  try{ const r = await api('bth', {bth:b}, BTH_ESPERA_MS); info = r.existe ? {tolva:r.tolva, cam:r.cam} : null; S.red = true; }
+  catch(e){ if(e.servidor){ info = undefined; alert(e.message); } else info = 'offline'; }
+  if(seq !== bthSeq || S.form !== f || f.bth !== b) return; // el técnico cambió el número o salió del caso
+  f.bthInfo = info; pintarBthEstado(); guardarBorrador();
+}
+function programarBusqueda(){ clearTimeout(bthTimer); bthSeq++; if(bthListo(S.form)) bthTimer = setTimeout(buscarBth, 900); }
+
 /* ---------- Render general ---------- */
 function render(){
   const app = $('#app');
@@ -134,7 +172,7 @@ function render(){
   else if(S.pant === 'form') app.innerHTML = appbar((S.form.tipo ? TIPOS[S.form.tipo] : 'Nuevo trabajo') + (S.form.bth ? ' · B-T-H-' + esc(S.form.bth) : ''), true) + progresoHTML() + '<div class="main">' + formHTML() + '</div>' + syncbarHTML();
   else app.innerHTML = appbar('Mis trabajos') + '<div class="main">' + listaHTML() + '</div>' + syncbarHTML();
   bind();
-  if(S.pant === 'form' && S.form && S.form.bthInfo) iniciarFirma();
+  if(S.pant === 'form' && bthListo(S.form) && S.form.tipo) iniciarFirma();
 }
 function appbar(titulo, volver){
   const red = S.red ? '<span class="net">con datos</span>' : '<span class="net off">sin señal</span>';
@@ -166,7 +204,7 @@ function listaHTML(){
     h += `<div class="group"><span>Inconclusos: tocá para completar</span><span>${S.casos.length}</span></div>`;
     S.casos.slice().reverse().forEach(c => {
       h += `<div style="display:flex;align-items:center;border-bottom:1px solid var(--line)"><button class="row" style="border-bottom:0" data-abrir="${esc(c.id)}"><div class="avatar" style="background:var(--warn)">${esc(c.bth || '?')}</div><div class="txt"><div class="t1">B-T-H-${esc(c.bth || 'sin cargar')}</div>
-        <div class="t2">${c.tipo ? TIPOS[c.tipo] + ' · ' : ''}Empezado ${fechaCorta(c.inicio)}${c.faltan ? ' · faltan ' + c.faltan + ' datos' : ''}</div>${tag(c.estado)}</div></button>
+        <div class="t2">${c.tipo ? TIPOS[c.tipo] + ' · ' : ''}Empezado ${fechaCorta(c.inicio)}</div>${c.faltan ? `<div class="t2" style="color:var(--warn)">${esc(c.falta || 'Faltan ' + c.faltan + ' datos.')}</div>` : ''}${tag(c.estado)}</div></button>
         ${c.estado === 'SIN GUARDAR' ? `<button class="textbtn" data-descartar="${esc(c.id)}">Descartar</button>` : ''}</div>`;
     });
   }
@@ -192,11 +230,14 @@ function nuevoForm(tipo){
 async function abrirCaso(id){
   const f = await kvLeer('caso:' + id);
   if(!f){ alert('No se encontró el caso en este celular.'); return; }
-  S.form = f; S.form.enviadas = S.form.enviadas || {}; S.err = []; S.pant = 'form'; render(); window.scrollTo(0, 0);
+  S.form = f; S.form.enviadas = S.form.enviadas || {}; S.err = []; S.pant = 'form';
+  // Un caso que quedó sin respuesta del padrón (sin señal o búsqueda cortada) se vuelve a buscar al abrirlo.
+  if(f.bthInfo === 'buscando' || f.bthInfo === 'offline' || f.bthInfo === undefined){ f.bthInfo = undefined; programarBusqueda(); }
+  render(); window.scrollTo(0, 0);
 }
 function resumenCaso(estado){
   const c = S.casos.find(x => x.id === S.form.id); if(!c) return;
-  c.bth = S.form.bth || ''; c.tipo = S.form.tipo || ''; c.faltan = S.form.bthInfo && S.form.tipo ? faltantes().length : 0; if(estado) c.estado = estado;
+  c.bth = S.form.bth || ''; c.tipo = S.form.tipo || ''; c.faltan = bthListo(S.form) && S.form.tipo ? faltantes().length : 0; c.falta = c.faltan ? resumenFalta() : ''; if(estado) c.estado = estado;
   guardarJSON('casos', S.casos);
 }
 function tomarGps(){
@@ -216,13 +257,9 @@ function formHTML(){
   if(!f.tipo) h += `<div class="sec"><h4>Tipo de trabajo <span class="req">*</span></h4><div class="pills" data-tipo="1">${Object.entries(TIPOS).map(([k, v]) => `<button data-v="${k}" aria-pressed="${f.tipo === k}" style="${f.tipo === k ? 'background:var(--accent);border-color:var(--accent);color:#fff' : ''}">${v}</button>`).join('')}</div></div>`;
   h += `<div class="sec"><h4>Equipo</h4><div class="field"><label for="bth">Número de BTH: tablet → CONFIGURACION → INFO, Cód. Balanza <span class="req">*</span></label>
     <div class="bthrow"><span>B-T-H-</span><input type="tel" id="bth" inputmode="numeric" maxlength="4" data-f="bth" value="${esc(f.bth || '')}"></div></div>
-    <button class="textbtn" style="padding:0" data-act="buscarbth">Buscar equipo</button>`;
-  if(f.bthInfo === null) h += `<div class="ro bad">Ese BTH no existe en el padrón. Revisá la pantalla INFO.${f.tipo === 'INSTALACION' ? '<br><button class="textbtn" style="padding:4px 0" data-act="bthnuevo">Es un equipo nuevo: seguir igual</button>' : ''}</div>`;
-  else if(f.bthInfo === 'offline') h += '<div class="ro">Sin señal: el BTH se controla al enviar.</div>';
-  else if(f.bthInfo && f.bthInfo.nuevo) h += '<div class="ro">Equipo nuevo, todavía no figura en el padrón. Soporte lo revisa.</div>';
-  else if(f.bthInfo) h += `<div class="ro">Equipo encontrado. Tipo de tolva: ${esc(f.bthInfo.tolva || 'sin dato')}</div>`;
+    <div id="bthEstado">${bthEstadoHTML(f)}</div>`;
   h += '</div>';
-  if(!f.bthInfo || !f.tipo) return h + `<p class="hint" style="padding:0 14px">${!f.tipo ? 'Elegí el tipo de trabajo. ' : ''}${!f.bthInfo ? 'Cargá el BTH y tocá Buscar equipo.' : ''} Después aparece el checklist.</p>`;
+  if(!bthListo(f) || !f.tipo) return h + `<p class="hint" style="padding:0 14px">${!f.tipo ? 'Elegí el tipo de trabajo. ' : ''}${!bthListo(f) ? 'Cargá el número de BTH (3 o 4 dígitos).' : ''} Después aparece el checklist.</p>`;
 
   itemsDe(f.tipo).forEach((it, n) => {
     const r = f.r[it.k];
@@ -273,45 +310,69 @@ function formHTML(){
   return h + `<div id="zonaGuardar">${botonHTML()}</div>`;
 }
 
+// Cada requisito lleva su sección (sec) y el dato que falta (dato), para resumir por punto y no por cantidad de datos.
+const SECCIONES = {tipo:'el tipo de trabajo', equipo:'el número de BTH', rep:'los repuestos', obs:'las observaciones', conf:'la conformidad del cliente'};
 function requisitos(){
-  const f = S.form, req = [], add = (ok, txt) => req.push({ok: !!ok, txt});
-  add(f.tipo, 'Falta elegir el tipo de trabajo.');
-  add(f.bthInfo, 'Equipo: falta un BTH válido.');
-  if(!f.bthInfo || !f.tipo) return req;
-  itemsDe(f.tipo).forEach(it => {
-    const r = f.r[it.k];
-    add(r, `${it.t}: falta el resultado.`);
+  const f = S.form, req = [];
+  const add = (ok, sec, dato, txt) => req.push({ok: !!ok, sec, dato, txt});
+  add(f.tipo, 'tipo', 'el tipo de trabajo', 'Falta elegir el tipo de trabajo.');
+  add(bthListo(f), 'equipo', 'el número de BTH', 'Equipo: falta el número de BTH.');
+  if(!bthListo(f) || !f.tipo) return req;
+  itemsDe(f.tipo).forEach((it, i) => {
+    const n = i + 1, r = f.r[it.k], p = `Punto ${n} (${it.t})`, a = (ok, dato) => add(ok, n, dato, `${p}: falta ${dato}.`);
+    a(r, 'el resultado');
     if(r === 'NA') return;
-    it.fotos.forEach(([k, lbl]) => add(f.cap[k], `${it.t}: falta ${lbl.toLowerCase()}.`));
+    it.fotos.forEach(([k, lbl]) => a(f.cap[k], (/^foto/i.test(lbl) ? 'la ' : '') + lbl.charAt(0).toLowerCase() + lbl.slice(1)));
     if(it.antes){
-      add(f[it.antes.campo], `${it.t}: falta responder si los kg se movían.`);
-      if(f[it.antes.campo] === 'SI') add(f.cap[it.antes.video], `${it.t}: falta el video de antes de arreglar.`);
+      a(f[it.antes.campo], 'responder si los kg se movían');
+      if(f[it.antes.campo] === 'SI') a(f.cap[it.antes.video], 'el video de antes de arreglar');
     }
-    if(it.video) add(f.cap[it.video], `${it.t}: falta el video${it.antes && f[it.antes.campo] === 'SI' ? ' de después de arreglar' : ''}.`);
+    if(it.video) a(f.cap[it.video], `el video${it.antes && f[it.antes.campo] === 'SI' ? ' de después de arreglar' : ''}`);
     if(it.kg){
       const kg = Number(f.kgFantasma);
-      add(!(f.kgFantasma === undefined || f.kgFantasma === '' || isNaN(kg) || kg < 0), 'Peso fantasma: faltan los kg que sumó el neto.');
-      if(r === 'OK' && kg >= 40) add(false, 'Peso fantasma: con 40 kg o más el resultado es Falla.');
+      a(!(f.kgFantasma === undefined || f.kgFantasma === '' || isNaN(kg) || kg < 0), 'cargar los kg que sumó el neto');
+      if(r === 'OK' && kg >= 40) add(false, n, 'corregir el resultado (con 40 kg o más es Falla)', `${p}: con 40 kg o más el resultado es Falla.`);
     }
-    if(it.prueba) add(/^\d{1,2}:\d{2}$/.test(f.hora || ''), 'Descarga de prueba: falta la hora (hh:mm).');
+    if(it.prueba) a(/^\d{1,2}:\d{2}$/.test(f.hora || ''), 'la hora de la descarga (hh:mm)');
   });
-  if(Object.values(f.r).includes('FALLA')) add((f.obs || '').trim(), 'Hay una falla: describila en Observaciones.');
-  if(f.r.carga === 'FALLA') add(f.repuestos.length, 'Carga de la tablet: marcá en Repuestos lo que se cambió.');
-  add((f.recibe || '').trim(), 'Conformidad: falta el nombre de quien recibe.');
-  add(f.firma, 'Conformidad: falta la firma.');
+  if(Object.values(f.r).includes('FALLA')) add((f.obs || '').trim(), 'obs', 'describir la falla en Observaciones', 'Hay una falla: describila en Observaciones.');
+  if(f.r.carga === 'FALLA') add(f.repuestos.length, 'rep', 'marcar en Repuestos lo que se cambió', 'Carga de la tablet: marcá en Repuestos lo que se cambió.');
+  add((f.recibe || '').trim(), 'conf', 'el nombre de quien recibe', 'Conformidad: falta el nombre de quien recibe.');
+  add(f.firma, 'conf', 'la firma del cliente', 'Conformidad: falta la firma.');
   return req;
 }
 const faltantes = () => requisitos().filter(r => !r.ok).map(r => r.txt);
+const unirY = xs => xs.length < 2 ? (xs[0] || '') : xs.slice(0, -1).join(', ') + ' y ' + xs[xs.length - 1];
+function rangos(ns){
+  const out = []; let i = 0;
+  while(i < ns.length){ let j = i; while(j + 1 < ns.length && ns[j + 1] === ns[j] + 1) j++;
+    if(j - i >= 2) out.push(ns[i] + ' a ' + ns[j]); else for(let k = i; k <= j; k++) out.push(String(ns[k]));
+    i = j + 1; }
+  return out;
+}
+// Resumen corto de lo que falta: con uno o dos datos los nombra; con más, nombra los puntos y secciones.
+function resumenFalta(){
+  const m = requisitos().filter(r => !r.ok); if(!m.length) return '';
+  const lugar = s => typeof s === 'number' ? 'en el punto ' + s : s === 'conf' ? 'en la conformidad' : '';
+  // Si falta el resultado, falta el punto entero: se nombra el punto y no sus datos sueltos.
+  if(m.length <= 2 && !m.some(r => r.dato === 'el resultado')) return 'Falta ' + unirY(m.map(r => (r.dato + ' ' + lugar(r.sec)).trim())) + '.';
+  const nums = [...new Set(m.filter(r => typeof r.sec === 'number').map(r => r.sec))].sort((a, b) => a - b);
+  const otras = [...new Set(m.filter(r => typeof r.sec !== 'number').map(r => r.sec))].map(s => SECCIONES[s]);
+  const partes = [];
+  if(nums.length){ const rs = rangos(nums); partes.push((nums.length === 1 ? 'el punto ' : 'los puntos ') + (otras.length ? rs.join(', ') : unirY(rs))); }
+  return 'Falta completar ' + unirY(partes.concat(otras)) + '.';
+}
 function progresoHTML(){
-  if(!S.form.bthInfo || !S.form.tipo) return '<div class="prog" id="prog"><div class="prog-top"><span>Cargá el equipo para empezar</span><b>0%</b></div><div class="bar big"><i style="width:0"></i></div></div>';
+  if(!bthListo(S.form) || !S.form.tipo) return '<div class="prog" id="prog"><div class="prog-top"><span>Cargá el equipo para empezar</span><b>0%</b></div><div class="bar big"><i style="width:0"></i></div></div>';
   const req = requisitos(), ok = req.filter(r => r.ok).length, pct = Math.round(100 * ok / req.length);
   return `<div class="prog" id="prog"><div class="prog-top"><span>${pct === 100 ? 'Checklist completo' : 'Progreso del checklist'}</span><b>${ok} de ${req.length}</b></div><div class="bar big"><i style="width:${pct}%;${pct < 100 ? 'background:var(--accent)' : ''}"></i></div></div>`;
 }
 function botonHTML(){
-  if(!S.form.bthInfo || !S.form.tipo) return '';
+  if(!bthListo(S.form) || !S.form.tipo) return '';
   const n = faltantes().length, red = S.red ? 'y enviar' : 'en el celular';
   if(!n) return `<button class="btn-main" data-act="guardar">Cerrar caso: guardar ${red}</button>`;
-  return `<button class="btn-main" style="background:var(--warn)" data-act="guardar">Guardar incompleto (${n === 1 ? 'falta 1 dato' : `faltan ${n} datos`})</button>
+  return `<p class="hint warn" style="margin:14px 14px 0;font-weight:600">${esc(resumenFalta())}</p>
+    <button class="btn-main" style="background:var(--warn)" data-act="guardar">Guardar incompleto</button>
     <p class="hint" style="margin:0 14px">Queda en Inconclusos y lo podés completar después. Se cierra cuando no falte nada.</p>
     <button class="textbtn" style="display:block;margin:0 auto 16px" data-act="verfalta">Ver qué falta</button>`;
 }
@@ -429,7 +490,7 @@ function clavesEsperadas(){
 }
 async function guardar(){
   const f = S.form, falta = faltantes(), parcial = falta.length > 0;
-  if(parcial && !confirm('Faltan ' + falta.length + ' datos:\n\n- ' + falta.join('\n- ') + '\n\n¿Guardar incompleto? Queda en Inconclusos para terminarlo después.')) return;
+  if(parcial && !confirm(resumenFalta() + '\n\n- ' + falta.join('\n- ') + '\n\n¿Guardar incompleto? Queda en Inconclusos para terminarlo después.')) return;
   // Solo se manda lo nuevo o lo que se volvió a capturar desde el último guardado.
   const archivos = Object.entries(f.cap).map(([clave, c]) => ({clave, c}));
   if(f.firma) archivos.push({clave:'firma', c:{tipo:'firma', mime:'image/png', b64:f.firma, kb:kbDe(f.firma), hora:f.firmaHora || f.inicio, item:'conformidad'}});
@@ -547,25 +608,25 @@ function bind(){
   });
   $$('[data-f]').forEach(i => {
     const k = i.dataset.f;
-    i.oninput = () => { S.form[k] = k === 'bth' ? i.value.replace(/\D/g, '') : i.value; if(k === 'bth'){ i.value = S.form.bth; S.form.bthInfo = undefined; } refrescarProgreso(); };
+    i.oninput = () => {
+      if(k !== 'bth'){ S.form[k] = i.value; return refrescarProgreso(); }
+      const antes = bthListo(S.form), v = i.value.replace(/\D/g, '');
+      if(v === S.form.bth){ i.value = v; return; }
+      S.form.bth = v; i.value = v; S.form.bthInfo = undefined; programarBusqueda();
+      if(antes !== bthListo(S.form)){ render(); const n = $('#bth'); if(n){ n.focus(); n.setSelectionRange(v.length, v.length); } }
+      else { pintarBthEstado(); refrescarProgreso(); }
+    };
     if(i.tagName === 'SELECT') i.onchange = () => { S.form[k] = i.value; render(); guardarBorrador(); };
-    if(k === 'bth') i.onchange = () => render();
   });
 }
 async function accion(a){
   if(a === 'login') return ingresar();
   if(a === 'salir'){ if(S.pendientes && !confirm('Hay envíos pendientes. Se envían cuando vuelvas a ingresar. ¿Cerrar sesión?')) return; return cerrarSesion(); }
   if(a === 'nuevoPrev' || a === 'nuevoInst'){ nuevoForm(a === 'nuevoPrev' ? 'PREVENTIVO' : 'INSTALACION'); render(); window.scrollTo(0, 0); return; }
-  if(a === 'volver'){ guardarBorrador(); S.pant = 'lista'; S.form = null; return render(); }
-  if(a === 'buscarbth'){
-    const b = (S.form.bth || '').trim();
-    if(!/^\d{3,4}$/.test(b)){ S.form.bthInfo = null; return render(); }
-    try{ const r = await api('bth', {bth:b}); S.form.bthInfo = r.existe ? {tolva:r.tolva, cam:r.cam} : null; S.red = true; }
-    catch(e){ if(e.servidor){ alert(e.message); return; } S.form.bthInfo = 'offline'; S.red = false; }
-    guardarBorrador(); return render();
-  }
+  if(a === 'volver'){ clearTimeout(borradorT); clearTimeout(bthTimer); bthSeq++; await kvGuardar('caso:' + S.form.id, S.form); resumenCaso(); S.pant = 'lista'; S.form = null; return render(); }
+  if(a === 'buscarbth'){ clearTimeout(bthTimer); return buscarBth(); }
   if(a === 'verfalta'){ S.err = faltantes(); render(); const e = $('.errors'); if(e) e.scrollIntoView({block:'center'}); return; }
-  if(a === 'bthnuevo'){ S.form.bthInfo = {tolva:'', cam:false, nuevo:true}; render(); guardarBorrador(); return; }
+  if(a === 'bthnuevo'){ S.form.bthInfo = {tolva:'', cam:false, nuevo:true}; pintarBthEstado(); guardarBorrador(); return; }
   if(a === 'borrarfirma'){ S.form.firma = null; S.form.firmaHora = null; render(); guardarBorrador(); return; }
   if(a === 'guardar') return guardar();
   if(a === 'recargar') return cargarSoporte();

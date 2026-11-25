@@ -139,7 +139,7 @@ function render(){
 function appbar(titulo, volver){
   const red = S.red ? '<span class="net">con datos</span>' : '<span class="net off">sin señal</span>';
   const b = volver ? '<button class="iconbtn" data-act="volver" aria-label="Volver"><svg viewBox="0 0 24 24"><path d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z"/></svg></button>' : '';
-  return `<div class="appbar">${b}<div class="titles"><div class="app-name">PREVENTIVO AGDP${S.sesion ? ' · ' + esc(S.sesion.usuario) : ''}</div><div class="view-name">${titulo}</div></div>${red}</div>`;
+  return `<div class="appbar">${b}<img class="marca" src="logo-corvus-blanco.png" alt="Corvus"><div class="titles"><div class="app-name">Preventivo AGDP${S.sesion ? ' · ' + esc(S.sesion.usuario) : ''}</div><div class="view-name">${titulo}</div></div>${red}</div>`;
 }
 function syncbarHTML(){
   if(!S.pendientes) return `<div class="syncbar" id="syncbar"><span>Todo enviado</span><span>${S.colaError ? esc(S.colaError) : ''}</span></div>`;
@@ -150,7 +150,7 @@ const tag = e => `<span class="tag ${{'EN EL CELULAR':'warn','SIN GUARDAR':'warn
 /* ---------- Ingreso ---------- */
 function loginHTML(){
   return appbar('Ingresar') + `<div class="login">
-    <div class="logo">Preventivo AGDP</div><p class="hint">Usuario y clave que te dio Corvus.</p>
+    <img class="logo-login" src="logo-corvus.png" alt="Corvus"><div class="logo">Preventivo AGDP</div><p class="hint">Usuario y clave que te dio Corvus.</p>
     <div class="field"><label for="lgUser">Usuario</label><input type="text" id="lgUser" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
     <div class="field"><label for="lgPin">Clave</label><input type="password" id="lgPin" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
     ${S.loginErr ? `<div class="errors" style="margin:8px 0">${esc(S.loginErr)}</div>` : ''}
@@ -179,7 +179,7 @@ function listaHTML(){
       <div class="t2">${m.tipo ? TIPOS[m.tipo] + ' · ' : ''}${fechaCorta(m.inicio)} · ${Math.min(m.enviados || 0, m.esperados)} de ${m.esperados} archivos enviados</div><div class="bar"><i style="width:${pct}%"></i></div>
       ${tag(m.estado)}${m.bthValido === 'NO' ? ' <span class="tag bad">BTH no encontrado</span>' : ''}${m.motivo ? `<div class="t2" style="color:var(--bad)">${esc(m.motivo)}</div>` : ''}</div></div>`;
   });
-  return h + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px"><button class="btn-main" style="margin:0;width:100%" data-act="nuevoPrev">+ Preventivo</button><button class="btn-main" style="margin:0;width:100%;background:#1f7a45" data-act="nuevoInst">+ Instalación nueva</button></div><button class="textbtn" data-act="salir">Cerrar sesión</button>`;
+  return h + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px"><button class="btn-main" style="margin:0;width:100%" data-act="nuevoPrev">+ Preventivo</button><button class="btn-main" style="margin:0;width:100%;background:var(--brand)" data-act="nuevoInst">+ Instalación nueva</button></div><button class="textbtn" data-act="salir">Cerrar sesión</button>`;
 }
 
 /* ---------- Técnico: formulario ---------- */
@@ -462,7 +462,7 @@ async function cargarSoporte(){
 }
 function soporteHTML(){
   const L = S.sop.lista, sel = L.find(c => c.ID === S.sop.sel);
-  let h = `<div class="appbar"><div class="titles"><div class="app-name">PREVENTIVO AGDP · ${esc(S.sesion.usuario)} · Soporte</div><div class="view-name">Validación de preventivos e instalaciones</div></div>
+  let h = `<div class="appbar"><img class="marca" src="logo-corvus-blanco.png" alt="Corvus"><div class="titles"><div class="app-name">Preventivo AGDP · ${esc(S.sesion.usuario)} · Soporte</div><div class="view-name">Validación de preventivos e instalaciones</div></div>
     <button class="iconbtn" data-act="recargar">Actualizar</button><button class="iconbtn" data-act="salir">Salir</button></div>`;
   if(S.sop.error) h += `<div class="errors">${esc(S.sop.error)}</div>`;
   if(S.sop.cargando) h += '<p class="hint" style="padding:10px 14px">Cargando…</p>';

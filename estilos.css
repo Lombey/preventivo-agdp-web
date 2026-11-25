@@ -1,6 +1,6 @@
 :root{
   --bg:#f3f4f6; --surface:#fff; --ink:#1f2328; --muted:#5b6470; --line:#d9dde3;
-  --soft:#eef1f5; --accent:#2f5f8a; --accent-soft:#e3edf6;
+  --soft:#eef1f5; --accent:#1b804d; --accent-soft:#e2f1e8; --brand:#204b42; --leaf:#62ae3d;
   --ok:#1f7a45; --ok-soft:#e1f2e8; --warn:#8a5a00; --warn-soft:#fbefd5;
   --bad:#a1262b; --bad-soft:#f8e1e2; --gray-soft:#eceef1;
 }
@@ -9,9 +9,9 @@ html,body{margin:0;padding:0;height:100%}
 body{background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
 #app{min-height:100%;display:flex;flex-direction:column;max-width:720px;margin:0 auto;background:var(--surface)}
 #app.ancho{max-width:1180px}
-.appbar{position:sticky;top:0;z-index:5;background:var(--accent);color:#fff;display:flex;align-items:center;gap:8px;padding:0 10px;min-height:54px;padding-top:env(safe-area-inset-top)}
+.appbar{position:sticky;top:0;z-index:5;background:var(--brand);color:#fff;display:flex;align-items:center;gap:8px;padding:0 10px;min-height:54px;padding-top:env(safe-area-inset-top)}
 .appbar .titles{flex:1;min-width:0}
-.appbar .app-name{font-size:.72rem;opacity:.85}
+.appbar .app-name{font-size:.72rem;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .appbar .view-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .iconbtn{background:transparent;border:0;color:inherit;font:inherit;padding:8px;border-radius:8px;cursor:pointer}
 .iconbtn svg{width:22px;height:22px;fill:currentColor;display:block}
@@ -22,12 +22,14 @@ body{background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-syste
 .prog-top b{color:var(--ink)}
 .bar{height:6px;background:var(--gray-soft);border-radius:3px;overflow:hidden;margin-top:5px}
 .bar.big{height:8px}
-.bar i{display:block;height:100%;background:var(--ok);transition:width .2s}
+.bar i{display:block;height:100%;background:var(--leaf);transition:width .2s}
 .main{flex:1}
 .syncbar{position:sticky;bottom:0;border-top:1px solid var(--line);background:#fafbfc;padding:8px 12px calc(8px + env(safe-area-inset-bottom));font-size:.8rem;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
 .syncbar b{color:var(--ink)}
 .login{padding:32px 22px}
-.logo{font-weight:700;font-size:1.3rem;color:var(--accent)}
+.logo{font-weight:700;font-size:1.3rem;color:var(--brand)}
+.logo-login{display:block;width:200px;max-width:70%;margin:0 0 18px}
+.appbar .marca{height:17px;flex:0 0 auto;display:block;padding-right:10px;margin-right:2px;border-right:1px solid rgba(255,255,255,.3)}
 .group{background:#f0f2f5;color:var(--muted);font-size:.75rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:6px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
 .row{display:flex;gap:10px;padding:10px 12px;border:0;border-bottom:1px solid var(--line);background:var(--surface);width:100%;text-align:left;font:inherit;color:inherit}
 button.row{cursor:pointer}

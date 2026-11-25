@@ -1,6 +1,6 @@
 // Guarda la web en el celular para que abra sin señal. Los pedidos a Apps Script no pasan por la caché.
-const CACHE = 'preventivo-v6';
-const ARCHIVOS = ['./', 'index.html', 'estilos.css', 'config.js', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'preventivo-v7';
+const ARCHIVOS = ['./', 'index.html', 'estilos.css', 'config.js', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'favicon.png', 'logo-corvus.png', 'logo-corvus-blanco.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARCHIVOS)).then(() => self.skipWaiting()));

@@ -5,15 +5,14 @@
 
 const CFG = window.PREVENTIVO_CONFIG;
 const ITEMS = [
-  {k:'ident', t:'1. Identidad del equipo', crit:'Cód. Balanza y S/N Balanza de la pantalla INFO coinciden con el BTH cargado.', fotos:[['info','Foto de la pantalla INFO']]},
-  {k:'conec', t:'2. Conectores de la caja', crit:'Conectores de energía y de celdas en buen estado. Al manipular el cable de celdas, el peso de la tablet no se mueve.', fotos:[['conec','Foto de la caja montada y sus fichas']]},
-  {k:'deriv', t:'3. Caja derivadora de celdas', crit:'Aislada del agua, sin conectores flojos adentro. Con golpes secos, el peso no cambia. Si el sello o la junta están dañados, se sella.', fotos:[['deriv1','Foto del interior'],['deriv2','Foto de la caja cerrada o sellada']], sellado:true},
-  {k:'bal', t:'4. Balanza estable y cero', crit:'Etiqueta Estable encendida, sin alerta CELDA DESCONECTADA, cero correcto. El peso reacciona a una carga y vuelve a Estable.', fotos:[['cab','Foto de la cabecera de pesaje']]},
-  {k:'fant', t:'5. Sin peso fantasma del tubo', crit:'Con la tolva parada, abrir y cerrar el tubo: el neto no cambia.', fotos:[], video:'vfant'},
-  {k:'sens', t:'6. Sensor inductivo', crit:'Posición y distancia correctas. La luz del sensor se enciende al acercarle metal. Modo automático activo, lógica según el mecanismo, retardo entre 0 y 6 s.', fotos:[['sens','Foto de CONFIGURAR SENSOR'],['sensled','Foto del sensor con la luz encendida']], sensor:true},
-  {k:'desc', t:'7. Descarga automática de prueba', crit:'Al mover el tubo o el volquete, aparece la etiqueta Automática y la descarga cierra sola. Destino PREVENTIVO.', fotos:[['disp','Foto del DISPLAY con la etiqueta Automática']], prueba:true},
-  {k:'cam', t:'8. Cámara', crit:'Con la tolva parada y el tubo abierto, la salida del tubo se ve bien en la pestaña CAMARA.', fotos:[['cam','Foto de la pestaña CAMARA']], soloCam:true},
-  {k:'carga', t:'9. Carga de la tablet', crit:'Con el cargador del equipo enchufado, la tablet carga. Si no carga, se cambia el cargador y se marca en Repuestos.', fotos:[['carga','Foto de la tablet cargando']]},
+  {k:'conec', t:'1. Conectores de la caja', crit:'Conectores de energía y de celdas en buen estado. Al manipular el cable de celdas, el peso de la tablet no se mueve.', fotos:[['conec','Foto de la caja montada y sus fichas']]},
+  {k:'deriv', t:'2. Caja derivadora de celdas', crit:'Aislada del agua, sin conectores flojos adentro. Con golpes secos, el peso no cambia. Si el sello o la junta están dañados, se sella.', fotos:[['deriv1','Foto del interior'],['deriv2','Foto de la caja cerrada o sellada']], sellado:true},
+  {k:'bal', t:'3. Balanza estable y cero', crit:'Etiqueta Estable encendida, sin alerta CELDA DESCONECTADA, cero correcto. El peso reacciona a una carga y vuelve a Estable.', fotos:[['cab','Foto de la cabecera de pesaje']]},
+  {k:'fant', t:'4. Sin peso fantasma del tubo', crit:'Con la tolva parada, abrir y cerrar el tubo: el neto no cambia.', fotos:[], video:'vfant'},
+  {k:'sens', t:'5. Sensor inductivo', crit:'Posición y distancia correctas. La luz del sensor se enciende al acercarle metal. Modo automático activo, lógica según el mecanismo, retardo entre 0 y 6 s.', fotos:[['sens','Foto de CONFIGURAR SENSOR'],['sensled','Foto del sensor con la luz encendida']], sensor:true},
+  {k:'desc', t:'6. Descarga automática de prueba', crit:'Al mover el tubo o el volquete, aparece la etiqueta Automática y la descarga cierra sola. Destino PREVENTIVO.', fotos:[['disp','Foto del DISPLAY con la etiqueta Automática']], prueba:true},
+  {k:'cam', t:'7. Cámara', crit:'Con la tolva parada y el tubo abierto, la salida del tubo se ve bien en la pestaña CAMARA.', fotos:[['cam','Foto de la pestaña CAMARA']], soloCam:true},
+  {k:'carga', t:'8. Carga de la tablet', crit:'Con el cargador del equipo enchufado, la tablet carga. Si no carga, se cambia el cargador y se marca en Repuestos.', fotos:[['carga','Foto de la tablet cargando']]},
 ];
 const REPUESTOS = ['Cargador','Sensor','Cable de alimentación','Cable de cámara','Caja Corvus','Placa electrónica','Módulo Bluetooth','Tablet'];
 
@@ -246,14 +245,14 @@ function requisitos(){
     it.fotos.forEach(([k, lbl]) => add(f.cap[k], `${it.t}: falta ${lbl.toLowerCase()}.`));
     if(it.video) add(f.cap[it.video], `${it.t}: falta el video.`);
     if(it.sensor){
-      add(f.logica, '6. Sensor: falta la lógica.');
+      add(f.logica, '5. Sensor: falta la lógica.');
       const rt = Number(f.retardo);
-      add(!(f.retardo === undefined || f.retardo === '' || isNaN(rt) || rt < 0 || rt > 6), '6. Sensor: el retardo va de 0 a 6 s.');
+      add(!(f.retardo === undefined || f.retardo === '' || isNaN(rt) || rt < 0 || rt > 6), '5. Sensor: el retardo va de 0 a 6 s.');
     }
-    if(it.prueba) add(/^\d{1,2}:\d{2}$/.test(f.hora || ''), '7. Descarga: falta la hora de la prueba (hh:mm).');
+    if(it.prueba) add(/^\d{1,2}:\d{2}$/.test(f.hora || ''), '6. Descarga: falta la hora de la prueba (hh:mm).');
   });
   if(Object.values(f.r).includes('FALLA')) add((f.obs || '').trim(), 'Hay una falla: describila en Observaciones.');
-  if(f.r.carga === 'FALLA') add(f.repuestos.length, '9. Carga: marcá en Repuestos lo que se cambió.');
+  if(f.r.carga === 'FALLA') add(f.repuestos.length, '8. Carga: marcá en Repuestos lo que se cambió.');
   add((f.recibe || '').trim(), 'Conformidad: falta el nombre de quien recibe.');
   add(f.firma, 'Conformidad: falta la firma.');
   return req;

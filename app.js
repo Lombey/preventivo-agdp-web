@@ -165,8 +165,9 @@ function listaHTML(){
   if(S.casos.length){
     h += `<div class="group"><span>Inconclusos: tocá para completar</span><span>${S.casos.length}</span></div>`;
     S.casos.slice().reverse().forEach(c => {
-      h += `<button class="row" data-abrir="${esc(c.id)}"><div class="avatar" style="background:var(--warn)">${esc(c.bth || '?')}</div><div class="txt"><div class="t1">B-T-H-${esc(c.bth || 'sin cargar')}</div>
-        <div class="t2">${c.tipo ? TIPOS[c.tipo] + ' · ' : ''}Empezado ${fechaCorta(c.inicio)}${c.faltan ? ' · faltan ' + c.faltan + ' datos' : ''}</div>${tag(c.estado)}</div></button>`;
+      h += `<div style="display:flex;align-items:center;border-bottom:1px solid var(--line)"><button class="row" style="border-bottom:0" data-abrir="${esc(c.id)}"><div class="avatar" style="background:var(--warn)">${esc(c.bth || '?')}</div><div class="txt"><div class="t1">B-T-H-${esc(c.bth || 'sin cargar')}</div>
+        <div class="t2">${c.tipo ? TIPOS[c.tipo] + ' · ' : ''}Empezado ${fechaCorta(c.inicio)}${c.faltan ? ' · faltan ' + c.faltan + ' datos' : ''}</div>${tag(c.estado)}</div></button>
+        ${c.estado === 'SIN GUARDAR' ? `<button class="textbtn" data-descartar="${esc(c.id)}">Descartar</button>` : ''}</div>`;
     });
   }
   const cerrados = S.mios.filter(m => !S.casos.some(c => c.id === m.id));
@@ -178,13 +179,13 @@ function listaHTML(){
       <div class="t2">${m.tipo ? TIPOS[m.tipo] + ' · ' : ''}${fechaCorta(m.inicio)} · ${Math.min(m.enviados || 0, m.esperados)} de ${m.esperados} archivos enviados</div><div class="bar"><i style="width:${pct}%"></i></div>
       ${tag(m.estado)}${m.bthValido === 'NO' ? ' <span class="tag bad">BTH no encontrado</span>' : ''}${m.motivo ? `<div class="t2" style="color:var(--bad)">${esc(m.motivo)}</div>` : ''}</div></div>`;
   });
-  return h + `<button class="btn-main" data-act="nuevo">+ Nuevo preventivo o instalación</button><button class="textbtn" data-act="salir">Cerrar sesión</button>`;
+  return h + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px"><button class="btn-main" style="margin:0;width:100%" data-act="nuevoPrev">+ Preventivo</button><button class="btn-main" style="margin:0;width:100%;background:#1f7a45" data-act="nuevoInst">+ Instalación nueva</button></div><button class="textbtn" data-act="salir">Cerrar sesión</button>`;
 }
 
 /* ---------- Técnico: formulario ---------- */
-function nuevoForm(){
-  S.form = {id: nuevoId(), r:{}, cap:{}, repuestos:[], inicio: ahora(), gps: '', enviadas:{}};
-  S.casos.push({id:S.form.id, bth:'', inicio:S.form.inicio, estado:'SIN GUARDAR', faltan:0});
+function nuevoForm(tipo){
+  S.form = {id: nuevoId(), tipo, r:{}, cap:{}, repuestos:[], inicio: ahora(), gps: '', enviadas:{}};
+  S.casos.push({id:S.form.id, tipo, bth:'', inicio:S.form.inicio, estado:'SIN GUARDAR', faltan:0});
   guardarJSON('casos', S.casos);
   S.err = []; S.pant = 'form'; tomarGps(); guardarBorrador();
 }
@@ -212,7 +213,7 @@ function guardarBorrador(){ clearTimeout(borradorT); borradorT = setTimeout(() =
 function formHTML(){
   const f = S.form;
   let h = `<div class="meta">Inicio ${fechaCorta(f.inicio)} · GPS <span id="metaGps">${esc(f.gps || 'buscando…')}</span><br>Hora y GPS los toma el celular.</div>`;
-  h += `<div class="sec"><h4>Tipo de trabajo <span class="req">*</span></h4><div class="pills" data-tipo="1">${Object.entries(TIPOS).map(([k, v]) => `<button data-v="${k}" aria-pressed="${f.tipo === k}" style="${f.tipo === k ? 'background:var(--accent);border-color:var(--accent);color:#fff' : ''}">${v}</button>`).join('')}</div></div>`;
+  if(!f.tipo) h += `<div class="sec"><h4>Tipo de trabajo <span class="req">*</span></h4><div class="pills" data-tipo="1">${Object.entries(TIPOS).map(([k, v]) => `<button data-v="${k}" aria-pressed="${f.tipo === k}" style="${f.tipo === k ? 'background:var(--accent);border-color:var(--accent);color:#fff' : ''}">${v}</button>`).join('')}</div></div>`;
   h += `<div class="sec"><h4>Equipo</h4><div class="field"><label for="bth">Número de BTH: tablet → CONFIGURACION → INFO, Cód. Balanza <span class="req">*</span></label>
     <div class="bthrow"><span>B-T-H-</span><input type="tel" id="bth" inputmode="numeric" maxlength="4" data-f="bth" value="${esc(f.bth || '')}"></div></div>
     <button class="textbtn" style="padding:0" data-act="buscarbth">Buscar equipo</button>`;
@@ -302,7 +303,7 @@ function requisitos(){
 }
 const faltantes = () => requisitos().filter(r => !r.ok).map(r => r.txt);
 function progresoHTML(){
-  if(!S.form.bthInfo || !S.form.tipo) return '<div class="prog" id="prog"><div class="prog-top"><span>Elegí el tipo y cargá el equipo para empezar</span><b>0%</b></div><div class="bar big"><i style="width:0"></i></div></div>';
+  if(!S.form.bthInfo || !S.form.tipo) return '<div class="prog" id="prog"><div class="prog-top"><span>Cargá el equipo para empezar</span><b>0%</b></div><div class="bar big"><i style="width:0"></i></div></div>';
   const req = requisitos(), ok = req.filter(r => r.ok).length, pct = Math.round(100 * ok / req.length);
   return `<div class="prog" id="prog"><div class="prog-top"><span>${pct === 100 ? 'Checklist completo' : 'Progreso del checklist'}</span><b>${ok} de ${req.length}</b></div><div class="bar big"><i style="width:${pct}%;${pct < 100 ? 'background:var(--accent)' : ''}"></i></div></div>`;
 }
@@ -529,6 +530,10 @@ function bind(){
   $$('[data-sel]').forEach(b => b.onclick = () => { S.sop.sel = b.dataset.sel; S.sop.error = ''; render(); });
   $$('[data-ver]').forEach(b => b.onclick = () => verArchivo(b.dataset.ver));
   $$('[data-abrir]').forEach(b => b.onclick = () => abrirCaso(b.dataset.abrir));
+  $$('[data-descartar]').forEach(b => b.onclick = async () => {
+    if(!confirm('¿Descartar este trabajo? Nunca se guardó: se pierde lo cargado en el celular.')) return;
+    await kvBorrar('caso:' + b.dataset.descartar); S.casos = S.casos.filter(c => c.id !== b.dataset.descartar); guardarJSON('casos', S.casos); render();
+  });
   $$('[data-extra]').forEach(b => b.onclick = () => tomarFoto(nuevaExtra(b.dataset.extra), b.dataset.extra));
   $$('[data-quitar]').forEach(b => b.onclick = () => quitarExtra(b.dataset.quitar));
   $$('.pills[data-campo]').forEach(p => p.querySelectorAll('button').forEach(b => b.onclick = () => { S.form[p.dataset.campo] = b.dataset.v; render(); guardarBorrador(); }));
@@ -550,7 +555,7 @@ function bind(){
 async function accion(a){
   if(a === 'login') return ingresar();
   if(a === 'salir'){ if(S.pendientes && !confirm('Hay envíos pendientes. Se envían cuando vuelvas a ingresar. ¿Cerrar sesión?')) return; return cerrarSesion(); }
-  if(a === 'nuevo'){ nuevoForm(); render(); window.scrollTo(0, 0); return; }
+  if(a === 'nuevoPrev' || a === 'nuevoInst'){ nuevoForm(a === 'nuevoPrev' ? 'PREVENTIVO' : 'INSTALACION'); render(); window.scrollTo(0, 0); return; }
   if(a === 'volver'){ guardarBorrador(); S.pant = 'lista'; S.form = null; return render(); }
   if(a === 'buscarbth'){
     const b = (S.form.bth || '').trim();

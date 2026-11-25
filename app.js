@@ -8,8 +8,8 @@ const ITEMS = [
   {k:'conec', t:'1. Conectores de la caja', crit:'Conectores de energía y de celdas en buen estado. Al manipular el cable de celdas, el peso de la tablet no se mueve.', fotos:[['conec','Foto de la caja montada y sus fichas']]},
   {k:'deriv', t:'2. Caja derivadora de celdas', crit:'Aislada del agua, sin conectores flojos adentro. Con golpes secos, el peso no cambia. Si el sello o la junta están dañados, se sella.', fotos:[['deriv1','Foto del interior'],['deriv2','Foto de la caja cerrada o sellada']], sellado:true},
   {k:'bal', t:'3. Balanza estable y cero', crit:'Etiqueta Estable encendida, sin alerta CELDA DESCONECTADA, cero correcto. El peso reacciona a una carga y vuelve a Estable.', fotos:[['cab','Foto de la cabecera de pesaje']]},
-  {k:'fant', t:'4. Sin peso fantasma del tubo', crit:'Con la tolva parada, abrir y cerrar el tubo: el neto no cambia.', fotos:[], video:'vfant'},
-  {k:'sens', t:'5. Sensor inductivo', crit:'Posición y distancia correctas. La luz del sensor se enciende al acercarle metal. Modo automático activo, lógica según el mecanismo, retardo entre 0 y 6 s.', fotos:[['sens','Foto de CONFIGURAR SENSOR'],['sensled','Foto del sensor con la luz encendida']], sensor:true},
+  {k:'fant', t:'4. Sin peso fantasma del tubo', crit:'Con la tolva parada, abrir y cerrar el tubo: el neto casi no cambia. Aceptable: menos de 40 kg. Ideal: 0 a 20 kg.', fotos:[], video:'vfant', kg:true},
+  {k:'sens', t:'5. Sensor inductivo', crit:'Posición y distancia correctas. La luz del sensor se enciende al acercarle metal.', fotos:[['sensled','Foto del sensor con la luz encendida']]},
   {k:'desc', t:'6. Descarga automática de prueba', crit:'Al mover el tubo o el volquete, aparece la etiqueta Automática y la descarga cierra sola. Destino PREVENTIVO.', fotos:[['disp','Foto del DISPLAY con la etiqueta Automática']], prueba:true},
   {k:'cam', t:'7. Cámara', crit:'Con la tolva parada y el tubo abierto, la salida del tubo se ve bien en la pestaña CAMARA.', fotos:[['cam','Foto de la pestaña CAMARA']], soloCam:true},
   {k:'carga', t:'8. Carga de la tablet', crit:'Con el cargador del equipo enchufado, la tablet carga. Si no carga, se cambia el cargador y se marca en Repuestos.', fotos:[['carga','Foto de la tablet cargando']]},
@@ -200,12 +200,10 @@ function formHTML(){
     h += `<div class="sec"><h4>${it.t}</h4><p class="crit">${it.crit}</p>
       <div class="pills" data-item="${it.k}">${['OK','FALLA','NA'].map(v => `<button data-v="${v}" aria-pressed="${r === v}">${v === 'NA' ? 'No aplica' : v === 'FALLA' ? 'Falla' : 'OK'}</button>`).join('')}</div>`;
     if(it.sellado) h += `<div class="field"><label>¿Se selló la caja?</label><select data-f="sellado"><option value="">—</option>${['Sí','No hizo falta'].map(o => `<option ${f.sellado === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>`;
-    if(it.sensor){
-      const tolva = f.bthInfo === 'offline' ? '' : f.bthInfo.tolva;
-      const esperada = tolva === 'SOJERA' ? 'NC' : tolva === 'MANICERA' ? 'NA' : '';
-      h += `<div class="field"><label>Lógica del sensor <span class="req">*</span></label><select data-f="logica"><option value="">—</option>${['NC','NA'].map(o => `<option ${f.logica === o ? 'selected' : ''}>${o}</option>`).join('')}</select>
-        ${f.logica && esperada && f.logica !== esperada ? `<div class="hint warn">El padrón dice ${esc(tolva)}: lo habitual es ${esperada}. Confirmá el mecanismo de descarga.</div>` : ''}</div>
-        <div class="field"><label>Retardo (s) <span class="req">*</span></label><input type="number" min="0" max="6" inputmode="numeric" data-f="retardo" value="${esc(f.retardo ?? '')}"></div>`;
+    if(it.kg){
+      const kg = f.kgFantasma === undefined || f.kgFantasma === '' ? null : Number(f.kgFantasma);
+      const nota = kg === null || isNaN(kg) ? 'Ideal: 0 a 20 kg. Aceptable: menos de 40 kg.' : kg < 20 ? 'Ideal.' : kg < 40 ? 'Aceptable.' : 'Fuera de tolerancia: el resultado es Falla.';
+      h += `<div class="field"><label>Kg que sumó el neto al abrir y cerrar el tubo <span class="req">*</span></label><input type="number" min="0" inputmode="numeric" data-f="kgFantasma" value="${esc(f.kgFantasma ?? '')}"><div class="hint ${kg !== null && kg >= 40 ? 'warn' : ''}" id="kgNota">${nota}</div></div>`;
     }
     if(it.prueba) h += `<div class="field"><label>Hora de la descarga de prueba <span class="req">*</span></label><input type="text" inputmode="numeric" placeholder="hh:mm" data-f="hora" value="${esc(f.hora || '')}"><div class="hint">Soporte la busca en AGDP Web con esta hora y el BTH.</div></div>`;
     if(r !== 'NA'){
@@ -244,10 +242,10 @@ function requisitos(){
     if(r === 'NA') return;
     it.fotos.forEach(([k, lbl]) => add(f.cap[k], `${it.t}: falta ${lbl.toLowerCase()}.`));
     if(it.video) add(f.cap[it.video], `${it.t}: falta el video.`);
-    if(it.sensor){
-      add(f.logica, '5. Sensor: falta la lógica.');
-      const rt = Number(f.retardo);
-      add(!(f.retardo === undefined || f.retardo === '' || isNaN(rt) || rt < 0 || rt > 6), '5. Sensor: el retardo va de 0 a 6 s.');
+    if(it.kg){
+      const kg = Number(f.kgFantasma);
+      add(!(f.kgFantasma === undefined || f.kgFantasma === '' || isNaN(kg) || kg < 0), '4. Peso fantasma: faltan los kg que sumó el neto.');
+      if(r === 'OK' && kg >= 40) add(false, '4. Peso fantasma: con 40 kg o más el resultado es Falla.');
     }
     if(it.prueba) add(/^\d{1,2}:\d{2}$/.test(f.hora || ''), '6. Descarga: falta la hora de la prueba (hh:mm).');
   });
@@ -268,7 +266,14 @@ function botonHTML(){
   if(!n) return `<button class="btn-main" data-act="guardar">Guardar ${S.red ? 'y enviar' : 'en el celular'}</button>`;
   return `<button class="btn-main" disabled>${n === 1 ? 'Falta 1 dato' : `Faltan ${n} datos`} para guardar</button><button class="textbtn" style="display:block;margin:0 auto 16px" data-act="verfalta">Ver qué falta</button>`;
 }
+function notaKg(){
+  const n = $('#kgNota'); if(!n) return;
+  const v = S.form.kgFantasma, kg = v === undefined || v === '' ? null : Number(v);
+  n.textContent = kg === null || isNaN(kg) ? 'Ideal: 0 a 20 kg. Aceptable: menos de 40 kg.' : kg < 20 ? 'Ideal.' : kg < 40 ? 'Aceptable.' : 'Fuera de tolerancia: el resultado es Falla.';
+  n.className = 'hint' + (kg !== null && kg >= 40 ? ' warn' : '');
+}
 function refrescarProgreso(){
+  notaKg();
   const p = $('#prog'); if(p) p.outerHTML = progresoHTML();
   const z = $('#zonaGuardar'); if(z){ z.innerHTML = botonHTML(); z.querySelectorAll('[data-act]').forEach(b => b.onclick = ev => { ev.preventDefault(); accion(b.dataset.act); }); }
   guardarBorrador();
@@ -361,7 +366,7 @@ async function guardar(){
   const archivos = Object.entries(f.cap).map(([clave, c]) => ({clave, c}));
   archivos.push({clave:'firma', c:{tipo:'firma', mime:'image/png', b64:f.firma, kb:kbDe(f.firma), hora:ahora(), item:'conformidad'}});
   const checklist = {id:f.id, bth:f.bth, inicio:f.inicio, gps:f.gps, r:Object.fromEntries(ITEMS.map(it => [it.k, f.r[it.k] || 'NA'])),
-    sellado:f.sellado || '', logica:f.logica || '', retardo:f.retardo ?? '', hora:f.hora || '', repuestos:f.repuestos, obs:f.obs || '', recibe:f.recibe, esperados:archivos.length};
+    sellado:f.sellado || '', kgFantasma:f.kgFantasma ?? '', hora:f.hora || '', repuestos:f.repuestos, obs:f.obs || '', recibe:f.recibe, esperados:archivos.length};
   await colaAgregar({tipo:'checklist', id:f.id, payload:checklist, kb:2});
   for(const a of archivos){
     await colaAgregar({tipo:'archivo', id:f.id, kb:a.c.kb, payload:{id:f.id, clave:a.clave, item:a.c.item, tipo:a.c.tipo, mime:a.c.mime, capturado:a.c.hora, datos:a.c.b64}});
@@ -397,7 +402,7 @@ function soporteHTML(){
     h += `<h3 style="margin-top:0">B-T-H-${esc(sel.BTH)} ${tag(sel.ESTADO)}</h3><p class="hint">${esc(sel.USUARIO_AGDP || 'BTH no encontrado en TABLET')} · ${esc(sel.TIPO_TOLVA || '—')} · técnico ${esc(sel.TECNICO)} · inicio ${fechaCorta(sel.INICIO)} · GPS ${esc(sel.GPS)} · ${esc(sel.ID)}</p>`;
     const map = {ident:'R_IDENTIDAD',conec:'R_CONECTORES',deriv:'R_DERIVADORA',bal:'R_BALANZA',fant:'R_FANTASMA',sens:'R_SENSOR',desc:'R_DESCARGA',cam:'R_CAMARA',carga:'R_CARGA'};
     ITEMS.forEach(it => { const v = sel[map[it.k]] || 'NA'; h += `<div class="evrow"><span>${it.t}</span><span>${v === 'OK' ? '<span class="tag ok">OK</span>' : v === 'FALLA' ? '<span class="tag bad">Falla</span>' : '<span class="tag">No aplica</span>'}</span></div>`; });
-    h += `<div class="evrow"><span>Sensor</span><span>Lógica ${esc(sel.LOGICA_SENSOR || '—')} · retardo ${esc(sel.RETARDO)} s</span></div>
+    h += `<div class="evrow"><span>Peso fantasma</span><span>${sel.KG_FANTASMA === '' || sel.KG_FANTASMA === undefined ? '—' : esc(sel.KG_FANTASMA) + ' kg'}</span></div>
       <div class="evrow"><span>Caja derivadora sellada</span><span>${esc(sel.SELLADO || '—')}</span></div>
       <div class="evrow"><span>Repuestos</span><span>${esc(sel.REPUESTOS || 'ninguno')}</span></div>
       <div class="evrow"><span>Conformidad</span><span>${esc(sel.RECIBE)}</span></div>`;

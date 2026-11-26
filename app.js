@@ -36,7 +36,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ahora = () => new Date().toISOString();
-const fechaCorta = iso => { if(!iso) return '—'; const d = new Date(iso); return isNaN(d) ? String(iso) : d.toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); };
+const fechaCorta = iso => { if(!iso) return '—'; const d = new Date(iso); return isNaN(d) ? esc(String(iso)) : d.toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); };
 const kbDe = b64 => Math.round(b64.length * 3 / 4 / 1024);
 const nuevoId = () => 'pv-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 
@@ -83,26 +83,32 @@ let procesando = false;
 async function contarCola(){
   const xs = await colaTodos();
   S.pendientes = xs.length; S.pendKb = xs.reduce((a, x) => a + (x.kb || 1), 0);
-  const sb = $('#syncbar'); if(sb) sb.outerHTML = syncbarHTML();
+  const sb = $('#syncbar'); if(sb){ sb.outerHTML = syncbarHTML(); const b = $('#syncbar [data-act]'); if(b) b.onclick = ev => { ev.preventDefault(); accion(b.dataset.act); }; }
 }
-async function procesarCola(){
-  if(procesando || !S.sesion || S.sesion.rol !== 'TECNICO') return;
+// Espera tras un error del servidor: 30 s, 1, 2, 4… minutos, hasta 30 min. Evita resubir un video entero cada 30 s.
+const esperaTrasError = n => Math.min(30 * 60000, 30000 * Math.pow(2, Math.max(0, n - 1)));
+async function procesarCola(forzar){
+  if(procesando || guardando || !S.sesion || S.sesion.rol !== 'TECNICO') return;
   procesando = true;
+  const trabados = new Set(); // casos cuyo checklist no entró: sus archivos esperan
   try{
     for(const item of await colaTodos()){
+      if(trabados.has(item.id)) continue;
+      if(!forzar && item.proximo && item.proximo > Date.now()){ if(item.tipo === 'checklist') trabados.add(item.id); continue; }
       try{
         const ms = 60000 + (item.kb || 1) * 20; // 1 min más 20 s por MB
         const r = item.tipo === 'checklist' ? await api('checklist', {checklist: item.payload}, ms) : await api('archivo', {archivo: item.payload}, ms);
         await colaBorrar(item.k);
         actualizarMio(item.id, m => {
           if(item.tipo === 'checklist'){ m.estado = r.estado || m.estado; m.bthValido = r.bthValido; }
-          else { m.enviados = (m.enviados || 0) + 1; if(r.estado) m.estado = r.estado; }
+          else { m.subidas = [...new Set((m.subidas || []).concat(item.payload.clave))]; if(r.estado) m.estado = r.estado; }
         });
         S.red = true; S.colaError = '';
       }catch(e){
         if(e.sesionVencida){ S.colaError = 'La sesión venció: ingresá de nuevo para terminar de enviar.'; cerrarSesion(false); break; }
         if(!e.servidor){ S.red = false; break; }        // sin conexión: se reintenta después
-        item.intentos = (item.intentos || 0) + 1; item.error = e.message; await colaActualizar(item);
+        item.intentos = (item.intentos || 0) + 1; item.error = e.message; item.proximo = Date.now() + esperaTrasError(item.intentos); await colaActualizar(item);
+        if(item.tipo === 'checklist') trabados.add(item.id);
         S.colaError = 'Un envío falló: ' + e.message;
       }
       await contarCola();
@@ -184,7 +190,8 @@ function appbar(titulo, volver){
 }
 function syncbarHTML(){
   if(!S.pendientes) return `<div class="syncbar" id="syncbar"><span>Todo enviado</span><span>${S.colaError ? esc(S.colaError) : ''}</span></div>`;
-  return `<div class="syncbar" id="syncbar"><span><b>${S.pendientes}</b> envíos pendientes · ${(S.pendKb/1024).toFixed(1)} MB</span><span>${S.colaError ? esc(S.colaError) : S.red ? 'enviando…' : 'esperando señal'}</span></div>`;
+  const reintentar = S.colaError ? ' <button class="textbtn" style="padding:0" data-act="reintentar">Reintentar ahora</button>' : '';
+  return `<div class="syncbar" id="syncbar"><span><b>${S.pendientes}</b> envíos pendientes · ${(S.pendKb/1024).toFixed(1)} MB</span><span>${S.colaError ? esc(S.colaError) + reintentar : S.red ? 'enviando…' : 'esperando señal'}</span></div>`;
 }
 const tag = e => `<span class="tag ${{'EN EL CELULAR':'warn','SIN GUARDAR':'warn',INCOMPLETO:'warn',RECIBIDO:'info',COMPLETO:'info',VALIDADO:'ok',OBSERVADO:'bad'}[e] || ''}">${esc(e)}</span>`;
 
@@ -215,9 +222,10 @@ function listaHTML(){
   h += `<div class="group"><span>Cerrados</span><span>${cerrados.length}</span></div>`;
   if(!cerrados.length) h += '<p class="hint" style="padding:12px 14px">Todavía no cerraste ninguno.</p>';
   cerrados.slice().reverse().forEach(m => {
-    const pct = m.esperados ? Math.round(100 * Math.min(m.enviados || 0, m.esperados) / m.esperados) : 0;
+    const env = m.claves ? m.claves.filter(k => (m.subidas || []).includes(k)).length : (m.enviados || 0);
+    const pct = m.esperados ? Math.round(100 * Math.min(env, m.esperados) / m.esperados) : 0;
     h += `<div class="row"><div class="avatar">${esc(m.bth)}</div><div class="txt"><div class="t1">B-T-H-${esc(m.bth)}</div>
-      <div class="t2">${m.tipo ? TIPOS[m.tipo] + ' · ' : ''}${fechaCorta(m.inicio)} · ${Math.min(m.enviados || 0, m.esperados)} de ${m.esperados} archivos enviados</div><div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="t2">${m.tipo ? TIPOS[m.tipo] + ' · ' : ''}${fechaCorta(m.inicio)} · ${Math.min(env, m.esperados)} de ${m.esperados} archivos enviados</div><div class="bar"><i style="width:${pct}%"></i></div>
       ${tag(m.estado)}${m.bthValido === 'NO' ? ' <span class="tag bad">BTH no encontrado</span>' : ''}${m.motivo ? `<div class="t2" style="color:var(--bad)">${esc(m.motivo)}</div>` : ''}</div></div>`;
   });
   return h + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px"><button class="btn-main" style="margin:0;width:100%" data-act="nuevoPrev">+ Preventivo</button><button class="btn-main" style="margin:0;width:100%;background:var(--brand)" data-act="nuevoInst">+ Instalación nueva</button></div><button class="textbtn" data-act="salir">Cerrar sesión</button>`;
@@ -252,7 +260,11 @@ function tomarGps(){
     {enableHighAccuracy:true, timeout:30000, maximumAge:120000});
 }
 let borradorT = null;
-function guardarBorrador(){ clearTimeout(borradorT); borradorT = setTimeout(() => { if(S.form){ kvGuardar('caso:' + S.form.id, S.form); resumenCaso(); } }, 300); }
+function avisoAlmacenamiento(e){
+  if(S.avisoEspacio) return; S.avisoEspacio = true;
+  alert('El celular no pudo guardar el trabajo (' + (e && e.name || 'error') + '). Liberá espacio y no cierres la app hasta enviarlo.');
+}
+function guardarBorrador(){ clearTimeout(borradorT); borradorT = setTimeout(() => { if(S.form){ kvGuardar('caso:' + S.form.id, S.form).then(() => { S.avisoEspacio = false; }, avisoAlmacenamiento); resumenCaso(); } }, 300); }
 
 function formHTML(){
   const f = S.form;
@@ -396,7 +408,8 @@ function refrescarProgreso(){
 function elegirArchivo(accept, capture){
   return new Promise(res => {
     const i = document.createElement('input'); i.type = 'file'; i.accept = accept; if(capture) i.setAttribute('capture', capture);
-    i.onchange = () => res(i.files[0] || null); i.click();
+    i.style.display = 'none'; document.body.appendChild(i);
+    i.onchange = () => { res(i.files[0] || null); i.remove(); }; i.click();
   });
 }
 async function comprimirFoto(file, max = 1280, calidad = 0.75){
@@ -414,28 +427,37 @@ async function tomarFoto(clave, item){
   if(!file) return;
   let b64;
   try{ b64 = await comprimirFoto(file); }
-  catch(e){ alert('No se pudo leer la foto. Sacala de nuevo.'); return; }
+  catch(e){ b64 = ''; }
+  if(!b64 || !S.form){ if(S.form) alert('No se pudo leer la foto. Sacala de nuevo.'); return; }
   S.form.cap[clave] = {tipo:'foto', mime:'image/jpeg', b64, kb: kbDe(b64), hora: ahora(), item};
   render(); guardarBorrador();
 }
 
 /* ---------- Video ---------- */
 const blobAB64 = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+async function videoDeArchivo(clave, item){
+  const f = S.form;
+  const file = await elegirArchivo('video/*', 'environment');
+  if(!file) return;
+  if(!file.size){ alert('El video quedó vacío. Grabalo de nuevo.'); return; }
+  if(file.size > 25 * 1024 * 1024){ alert('El video pesa ' + (file.size / 1048576).toFixed(0) + ' MB. Grabá uno más corto (10 a 15 s).'); return; }
+  const b64 = await blobAB64(file).catch(() => '');
+  if(!b64){ alert('No se pudo leer el video. Grabalo de nuevo.'); return; }
+  if(S.form !== f) return;
+  f.cap[clave] = {tipo:'video', mime: file.type || 'video/mp4', b64, kb: kbDe(b64), hora: ahora(), item};
+  render(); guardarBorrador();
+}
+function sinCamaraApp(){
+  S.sinCamara = true;
+  alert('No se pudo usar la cámara dentro de la app. Tocá de nuevo el botón del video para grabar con la cámara del celular (10 a 15 s).');
+}
 async function grabarVideo(clave, item){
   const mime = window.MediaRecorder && ['video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find(m => MediaRecorder.isTypeSupported(m));
+  if(S.sinCamara || !mime || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return videoDeArchivo(clave, item);
   let stream = null;
-  if(mime && navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
-    try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment', width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:20}}, audio:false}); }
-    catch(e){ stream = null; }
-  }
-  if(!stream){ // respaldo: la cámara del sistema
-    const file = await elegirArchivo('video/*', 'environment');
-    if(!file) return;
-    if(file.size > 25 * 1024 * 1024){ alert('El video pesa ' + (file.size / 1048576).toFixed(0) + ' MB. Grabá uno más corto (10 a 15 s).'); return; }
-    const b64 = await blobAB64(file);
-    S.form.cap[clave] = {tipo:'video', mime: file.type || 'video/mp4', b64, kb: kbDe(b64), hora: ahora(), item};
-    render(); guardarBorrador(); return;
-  }
+  try{ stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment', width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:20}}, audio:false}); }
+  catch(e){ return sinCamaraApp(); }
+  const f = S.form;
   const ov = document.createElement('div'); ov.className = 'rec';
   ov.innerHTML = '<video autoplay playsinline muted></video><div class="ctrl"><span id="recT">Listo para grabar</span><button id="recBtn" style="background:#c0392b;color:#fff">Grabar</button><button id="recCancel">Cancelar</button></div>';
   document.body.appendChild(ov);
@@ -447,15 +469,20 @@ async function grabarVideo(clave, item){
   ov.querySelector('#recBtn').onclick = () => {
     const btn = ov.querySelector('#recBtn');
     if(rec){ detener(); return; }
-    rec = new MediaRecorder(stream, {mimeType: mime, videoBitsPerSecond: 600000});
+    try{ rec = new MediaRecorder(stream, {mimeType: mime, videoBitsPerSecond: 600000}); }
+    catch(e){ cerrar(); return sinCamaraApp(); }
+    rec.onerror = () => { cancelado = true; cerrar(); sinCamaraApp(); };
     rec.ondataavailable = e => { if(e.data.size) partes.push(e.data); };
     rec.onstop = async () => {
       clearInterval(timer);
       if(cancelado) return;
       const blob = new Blob(partes, {type: mime.split(';')[0]});
-      const b64 = await blobAB64(blob);
-      S.form.cap[clave] = {tipo:'video', mime: mime.split(';')[0], b64, kb: kbDe(b64), hora: ahora(), item};
-      cerrar(); render(); guardarBorrador();
+      const b64 = blob.size ? await blobAB64(blob).catch(() => '') : '';
+      cerrar();
+      if(!b64){ alert('El video quedó vacío. Grabalo de nuevo.'); return; }
+      if(S.form !== f) return;
+      f.cap[clave] = {tipo:'video', mime: mime.split(';')[0], b64, kb: kbDe(b64), hora: ahora(), item};
+      render(); guardarBorrador();
     };
     rec.start(1000); t0 = Date.now(); btn.textContent = 'Detener';
     timer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); ov.querySelector('#recT').textContent = 'Grabando ' + s + ' s de 15'; if(s >= 15) detener(); }, 250);
@@ -469,11 +496,12 @@ function iniciarFirma(){
   c.width = r.width * dpr; c.height = r.height * dpr;
   const ctx = c.getContext('2d'); ctx.scale(dpr, dpr); ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#1f2328';
   if(S.form.firma){ const im = new Image(); im.onload = () => ctx.drawImage(im, 0, 0, r.width, r.height); im.src = 'data:image/png;base64,' + S.form.firma; }
-  let abajo = false;
+  let abajo = false, movs = 0;
   const pos = e => { const b = c.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
-  c.onpointerdown = e => { abajo = true; c.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.moveTo(...pos(e)); };
-  c.onpointermove = e => { if(!abajo) return; ctx.lineTo(...pos(e)); ctx.stroke(); };
-  c.onpointerup = () => { if(!abajo) return; abajo = false; S.form.firma = c.toDataURL('image/png').split(',')[1]; S.form.firmaHora = ahora(); $('#sigHint').textContent = 'Firma cargada'; refrescarProgreso(); };
+  c.onpointerdown = e => { abajo = true; movs = 0; c.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.moveTo(...pos(e)); };
+  c.onpointermove = e => { if(!abajo) return; movs++; ctx.lineTo(...pos(e)); ctx.stroke(); };
+  c.onpointercancel = () => { abajo = false; };
+  c.onpointerup = () => { if(!abajo) return; abajo = false; if(movs < 3 && !S.form.firma) return; S.form.firma = c.toDataURL('image/png').split(',')[1]; S.form.firmaHora = ahora(); $('#sigHint').textContent = 'Firma cargada'; refrescarProgreso(); };
 }
 
 function videoHTML(f, it, clave, txt){
@@ -499,7 +527,11 @@ let guardando = false;
 async function guardar(){
   if(guardando || !S.form) return;
   guardando = true;
-  try{ await guardarCaso(); } finally { guardando = false; }
+  clearTimeout(borradorT);
+  try{ await guardarCaso(); }
+  catch(e){ avisoAlmacenamiento(e); }
+  finally { guardando = false; }
+  if(!S.form){ await contarCola(); procesarCola(); }
 }
 async function guardarCaso(){
   const f = S.form, falta = faltantes(), parcial = falta.length > 0;
@@ -513,18 +545,18 @@ async function guardarCaso(){
   const checklist = {id:f.id, tipo:f.tipo, bth:f.bth, inicio:f.inicio, gps:f.gps, r:Object.fromEntries(itemsDe(f.tipo).map(it => [it.k, f.r[it.k] || ''])),
     sellado:f.sellado || '', conecMovia:f.conecMovia || '', kgFantasma:f.kgFantasma ?? '', hora:f.hora || '', repuestos:f.repuestos, obs:f.obs || '', recibe:f.recibe || '',
     claves, parcial, faltantes: falta};
-  await colaAgregar({tipo:'checklist', id:f.id, payload:checklist, kb:2});
-  for(const a of nuevos){
-    await colaAgregar({tipo:'archivo', id:f.id, kb:a.c.kb, payload:{id:f.id, clave:a.clave, item:a.c.item, tipo:a.c.tipo, mime:a.c.mime, capturado:a.c.hora, datos:a.c.b64}});
-    f.enviadas[a.clave] = a.c.hora;
-  }
   let m = S.mios.find(x => x.id === f.id);
-  if(!m){ m = {id:f.id, bth:f.bth, inicio:f.inicio, enviados:0}; S.mios.push(m); }
-  m.bth = f.bth; m.tipo = f.tipo; m.esperados = claves.length; m.estado = parcial ? 'INCOMPLETO' : 'EN EL CELULAR';
+  if(!m){ m = {id:f.id, bth:f.bth, inicio:f.inicio, subidas:[]}; S.mios.push(m); }
+  m.bth = f.bth; m.tipo = f.tipo; m.esperados = claves.length; m.claves = claves; m.estado = parcial ? 'INCOMPLETO' : 'EN EL CELULAR';
   guardarJSON('mios', S.mios);
+  // Todo el envío entra en una sola transacción: si falta espacio, no queda un caso a medias en la cola.
+  const items = [{tipo:'checklist', id:f.id, payload:checklist, kb:2}].concat(nuevos.map(a =>
+    ({tipo:'archivo', id:f.id, kb:a.c.kb, payload:{id:f.id, clave:a.clave, item:a.c.item, tipo:a.c.tipo, mime:a.c.mime, capturado:a.c.hora, datos:a.c.b64}})));
+  await idb('cola', 'readwrite', st => { items.forEach(x => st.add(x)); });
+  nuevos.forEach(a => { f.enviadas[a.clave] = a.c.hora; });
   if(parcial){ await kvGuardar('caso:' + f.id, f); resumenCaso('INCOMPLETO'); }
   else { await kvBorrar('caso:' + f.id); S.casos = S.casos.filter(c => c.id !== f.id); guardarJSON('casos', S.casos); }
-  S.form = null; S.err = []; S.pant = 'lista'; render(); window.scrollTo(0, 0); await contarCola(); procesarCola();
+  S.form = null; S.err = []; S.pant = 'lista'; render(); window.scrollTo(0, 0);
 }
 
 /* ---------- Soporte ---------- */
@@ -563,6 +595,7 @@ function soporteHTML(){
     h += '<div class="galeria">' + sel.archivos.map(a => {
       const v = S.sop.vistos[a.fileId];
       const cont = !v ? `<button data-ver="${esc(a.fileId)}">Ver ${esc(a.tipo)} (${Math.round(a.bytes / 1024)} KB)</button>` : v === 'cargando' ? '<button disabled>Cargando…</button>' :
+        !/^(image|video)\/[a-z0-9.+-]+$/.test(v.mime || '') ? '<p class="hint">Formato no previsualizable.</p>' :
         v.mime.startsWith('video') ? `<video controls playsinline src="data:${v.mime};base64,${v.datos}"></video>` : `<img src="data:${v.mime};base64,${v.datos}" alt="">`;
       return `<div class="ga">${cont}${esc(a.clave)} · ${esc(a.item)}</div>`;
     }).join('') + '</div>';
@@ -576,7 +609,7 @@ function soporteHTML(){
     if(sel.ESTADO === 'VALIDADO') h += `<div class="okmsg">Validado por ${esc(sel.VALIDO)}: descarga ${esc(sel.ID_DESCARGA_WEB)}.</div>`;
     else if(sel.ESTADO === 'INCOMPLETO') h += '<p class="hint">El técnico todavía no cerró el caso: se valida cuando lo complete.</p>';
     else {
-      const completo = sel.ESTADO === 'COMPLETO';
+      const completo = sel.ESTADO === 'COMPLETO' || (sel.ESTADO === 'OBSERVADO' && Number(sel.ARCHIVOS_RECIBIDOS) >= Number(sel.ARCHIVOS_ESPERADOS));
       h += `<div class="field"><label>ID de la descarga en AGDP Web</label><input type="text" id="idDesc"></div>
         <div class="field"><label>Motivo, si se observa</label><textarea id="motivo"></textarea></div>
         <div class="btnrow"><button class="btn ok" data-act="validar" ${completo ? '' : 'disabled'}>Validar</button><button class="btn bad" data-act="observar">Observar</button></div>
@@ -588,13 +621,13 @@ function soporteHTML(){
 async function verArchivo(fileId){
   S.sop.vistos[fileId] = 'cargando'; render();
   try{ const r = await api('ver', {fileId}); S.sop.vistos[fileId] = {mime:r.mime, datos:r.datos}; }
-  catch(e){ delete S.sop.vistos[fileId]; S.sop.error = e.message; }
+  catch(e){ delete S.sop.vistos[fileId]; if(e.sesionVencida) return cerrarSesion(); S.sop.error = e.message; }
   render();
 }
 async function resolver(resultado){
   const id = S.sop.sel, idDescarga = ($('#idDesc') || {}).value || '', motivo = ($('#motivo') || {}).value || '';
   try{ await api('validar', {id, resultado, idDescarga, motivo}); await cargarSoporte(); }
-  catch(e){ S.sop.error = e.message; render(); }
+  catch(e){ if(e.sesionVencida) return cerrarSesion(); S.sop.error = e.message; render(); }
 }
 
 /* ---------- Eventos ---------- */
@@ -636,20 +669,28 @@ async function accion(a){
   if(a === 'login') return ingresar();
   if(a === 'salir'){ if(S.pendientes && !confirm('Hay envíos pendientes. Se envían cuando vuelvas a ingresar. ¿Cerrar sesión?')) return; return cerrarSesion(); }
   if(a === 'nuevoPrev' || a === 'nuevoInst'){ nuevoForm(a === 'nuevoPrev' ? 'PREVENTIVO' : 'INSTALACION'); render(); window.scrollTo(0, 0); return; }
-  if(a === 'volver'){ clearTimeout(borradorT); clearTimeout(bthTimer); bthSeq++; await kvGuardar('caso:' + S.form.id, S.form); resumenCaso(); S.pant = 'lista'; S.form = null; return render(); }
+  if(a === 'volver'){ clearTimeout(borradorT); clearTimeout(bthTimer); bthSeq++; await kvGuardar('caso:' + S.form.id, S.form).catch(avisoAlmacenamiento); resumenCaso(); S.pant = 'lista'; S.form = null; return render(); }
   if(a === 'buscarbth'){ clearTimeout(bthTimer); return buscarBth(); }
   if(a === 'verfalta'){ S.err = faltantes(); render(); const e = $('.errors'); if(e) e.scrollIntoView({block:'center'}); return; }
   if(a === 'bthnuevo'){ S.form.bthInfo = {tolva:'', cam:false, nuevo:true}; pintarBthEstado(); guardarBorrador(); return; }
   if(a === 'borrarfirma'){ S.form.firma = null; S.form.firmaHora = null; render(); guardarBorrador(); return; }
   if(a === 'guardar') return guardar();
+  if(a === 'reintentar'){ S.colaError = ''; return procesarCola(true); }
   if(a === 'recargar') return cargarSoporte();
   if(a === 'validar') return resolver('VALIDADO');
   if(a === 'observar') return resolver('OBSERVADO');
 }
 
 /* ---------- Arranque ---------- */
-window.addEventListener('online', () => { S.red = true; procesarCola(); refrescarMios(); render(); });
-window.addEventListener('offline', () => { S.red = false; render(); });
+function pintarRed(){
+  if(S.pant === 'lista' && !S.form) return render();
+  const n = $('.appbar .net'); if(n) n.outerHTML = S.red ? '<span class="net">con datos</span>' : '<span class="net off">sin señal</span>';
+  contarCola();
+}
+window.addEventListener('online', () => { S.red = true; procesarCola(true); refrescarMios(); pintarRed(); });
+window.addEventListener('offline', () => { S.red = false; pintarRed(); });
+// Pide que el sistema no borre lo guardado en el celular (iOS puede vaciarlo si no se usa).
+if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 setInterval(() => { if(navigator.onLine) procesarCola(); }, 30000);
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 (async () => {

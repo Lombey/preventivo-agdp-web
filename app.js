@@ -71,7 +71,9 @@ async function api(accion, datos, ms){
     r = await fetch(CFG.API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, signal: ctl ? ctl.signal : undefined,
       body: JSON.stringify(Object.assign({accion, token: S.sesion && S.sesion.token}, datos || {}))});
   } finally { clearTimeout(t); }
-  const j = await r.json();
+  let j;
+  try{ j = await r.json(); }
+  catch(e){ const x = new Error('El servidor respondió con un error' + (r.status !== 200 ? ' (HTTP ' + r.status + ')' : '') + '. Se reintenta solo.'); x.servidor = true; throw x; }
   if(!j.ok){ const e = new Error(j.error || 'Error del servidor.'); e.servidor = true; e.sesionVencida = j.sesionVencida; throw e; }
   return j;
 }
@@ -89,7 +91,8 @@ async function procesarCola(){
   try{
     for(const item of await colaTodos()){
       try{
-        const r = item.tipo === 'checklist' ? await api('checklist', {checklist: item.payload}) : await api('archivo', {archivo: item.payload});
+        const ms = 60000 + (item.kb || 1) * 20; // 1 min más 20 s por MB
+        const r = item.tipo === 'checklist' ? await api('checklist', {checklist: item.payload}, ms) : await api('archivo', {archivo: item.payload}, ms);
         await colaBorrar(item.k);
         actualizarMio(item.id, m => {
           if(item.tipo === 'checklist'){ m.estado = r.estado || m.estado; m.bthValido = r.bthValido; }
@@ -409,7 +412,9 @@ async function comprimirFoto(file, max = 1280, calidad = 0.75){
 async function tomarFoto(clave, item){
   const file = await elegirArchivo('image/*', 'environment');
   if(!file) return;
-  const b64 = await comprimirFoto(file);
+  let b64;
+  try{ b64 = await comprimirFoto(file); }
+  catch(e){ alert('No se pudo leer la foto. Sacala de nuevo.'); return; }
   S.form.cap[clave] = {tipo:'foto', mime:'image/jpeg', b64, kb: kbDe(b64), hora: ahora(), item};
   render(); guardarBorrador();
 }
@@ -435,23 +440,25 @@ async function grabarVideo(clave, item){
   ov.innerHTML = '<video autoplay playsinline muted></video><div class="ctrl"><span id="recT">Listo para grabar</span><button id="recBtn" style="background:#c0392b;color:#fff">Grabar</button><button id="recCancel">Cancelar</button></div>';
   document.body.appendChild(ov);
   ov.querySelector('video').srcObject = stream;
-  const cerrar = () => { stream.getTracks().forEach(t => t.stop()); ov.remove(); };
-  ov.querySelector('#recCancel').onclick = cerrar;
-  let rec = null, partes = [], t0 = 0, timer = null;
+  let rec = null, partes = [], t0 = 0, timer = null, cancelado = false;
+  const cerrar = () => { clearInterval(timer); stream.getTracks().forEach(t => t.stop()); ov.remove(); };
+  const detener = () => { if(rec && rec.state === 'recording') rec.stop(); };
+  ov.querySelector('#recCancel').onclick = () => { cancelado = true; detener(); cerrar(); };
   ov.querySelector('#recBtn').onclick = () => {
     const btn = ov.querySelector('#recBtn');
-    if(rec){ rec.stop(); return; }
+    if(rec){ detener(); return; }
     rec = new MediaRecorder(stream, {mimeType: mime, videoBitsPerSecond: 600000});
     rec.ondataavailable = e => { if(e.data.size) partes.push(e.data); };
     rec.onstop = async () => {
       clearInterval(timer);
+      if(cancelado) return;
       const blob = new Blob(partes, {type: mime.split(';')[0]});
       const b64 = await blobAB64(blob);
       S.form.cap[clave] = {tipo:'video', mime: mime.split(';')[0], b64, kb: kbDe(b64), hora: ahora(), item};
       cerrar(); render(); guardarBorrador();
     };
     rec.start(1000); t0 = Date.now(); btn.textContent = 'Detener';
-    timer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); ov.querySelector('#recT').textContent = 'Grabando ' + s + ' s de 15'; if(s >= 15) rec.stop(); }, 250);
+    timer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); ov.querySelector('#recT').textContent = 'Grabando ' + s + ' s de 15'; if(s >= 15) detener(); }, 250);
   };
 }
 
@@ -488,7 +495,13 @@ function clavesEsperadas(){
   ks.push('firma');
   return ks;
 }
+let guardando = false;
 async function guardar(){
+  if(guardando || !S.form) return;
+  guardando = true;
+  try{ await guardarCaso(); } finally { guardando = false; }
+}
+async function guardarCaso(){
   const f = S.form, falta = faltantes(), parcial = falta.length > 0;
   if(parcial && !confirm(resumenFalta() + '\n\n- ' + falta.join('\n- ') + '\n\n¿Guardar incompleto? Queda en Inconclusos para terminarlo después.')) return;
   // Solo se manda lo nuevo o lo que se volvió a capturar desde el último guardado.

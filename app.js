@@ -40,6 +40,8 @@ const ahora = () => new Date().toISOString();
 const horaPrueba = f => { const it = ITEMS.find(x => x.prueba), c = it && f.cap[it.fotos[0][0]];
   return c ? new Date(c.hora).toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'America/Argentina/Buenos_Aires'}) : (f.hora || ''); };
 const fechaCorta = iso => { if(!iso) return '—'; const d = new Date(iso); return isNaN(d) ? esc(String(iso)) : d.toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); };
+// Día del trabajo para que Soporte filtre en AGDP Web. La hora de la foto no sirve: el técnico la saca a destiempo.
+const diaCorto = iso => { const d = new Date(iso); return !iso || isNaN(d) ? '—' : d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit', timeZone:'America/Argentina/Buenos_Aires'}); };
 const kbDe = b64 => Math.round(b64.length * 3 / 4 / 1024);
 const nuevoId = () => 'pv-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 
@@ -577,7 +579,7 @@ function soporteHTML(){
   ['COMPLETO','RECIBIDO','INCOMPLETO','OBSERVADO','VALIDADO'].forEach(est => {
     const g = L.filter(c => c.ESTADO === est); if(!g.length) return;
     h += `<div class="group"><span>${est}</span><span>${g.length}</span></div>`;
-    g.forEach(c => { h += `<button class="row" data-sel="${esc(c.ID)}" style="${sel && sel.ID === c.ID ? 'background:var(--accent-soft)' : ''}"><div class="avatar">${esc(c.BTH)}</div><div class="txt"><div class="t1">B-T-H-${esc(c.BTH)}${c.BTH_VALIDO === 'NO' ? ' <span class="tag bad">no existe</span>' : ''}</div><div class="t2">${TIPOS[c.TIPO_TRABAJO] || 'Preventivo'} · ${esc(c.USUARIO_AGDP || '—')} · ${esc(c.TECNICO)}</div><div class="t2">Prueba ${esc(c.HORA_PRUEBA || '—')} · ${c.ARCHIVOS_RECIBIDOS} de ${c.ARCHIVOS_ESPERADOS} archivos</div></div></button>`; });
+    g.forEach(c => { h += `<button class="row" data-sel="${esc(c.ID)}" style="${sel && sel.ID === c.ID ? 'background:var(--accent-soft)' : ''}"><div class="avatar">${esc(c.BTH)}</div><div class="txt"><div class="t1">B-T-H-${esc(c.BTH)}${c.BTH_VALIDO === 'NO' ? ' <span class="tag bad">no existe</span>' : ''}</div><div class="t2">${TIPOS[c.TIPO_TRABAJO] || 'Preventivo'} · ${esc(c.USUARIO_AGDP || '—')} · ${esc(c.TECNICO)}</div><div class="t2">Prueba del ${diaCorto(c.INICIO)} · ${c.ARCHIVOS_RECIBIDOS} de ${c.ARCHIVOS_ESPERADOS} archivos</div></div></button>`; });
   });
   if(!L.length && !S.sop.cargando) h += '<p class="hint" style="padding:12px 14px">No hay checklists.</p>';
   h += '</div><div class="det">';
@@ -602,8 +604,8 @@ function soporteHTML(){
     }).join('') + '</div>';
     if(sel.CARPETA_URL) h += `<p class="hint"><a href="${esc(sel.CARPETA_URL)}" target="_blank" rel="noopener">Abrir la carpeta en Drive</a> (necesita acceso con la cuenta dueña)</p>`;
     h += `<div class="webbox"><div class="wt">Paso de Soporte en AGDP Web</div><ol style="font-size:.9rem;margin:0;padding-left:20px">
-      <li>Abrir las descargas de ${esc(sel.USUARIO_AGDP || 'el usuario del BTH')} y filtrar por el día de la prueba.</li>
-      <li>Buscar la descarga con destino PREVENTIVO cerca de las ${esc(sel.HORA_PRUEBA || '—')}.</li>
+      <li>Abrir las descargas de ${esc(sel.USUARIO_AGDP || 'el usuario del BTH')} y filtrar por el día ${diaCorto(sel.INICIO)}.</li>
+      <li>Buscar la descarga con destino PREVENTIVO de ese día y del BTH ${esc(sel.BTH)}.</li>
       <li>Confirmar el ícono de TIPO: Descarga automatica. (estado 3). Si dice Descarga manual en balanza. (28), el sensor no disparó.</li>
       <li>Confirmar que la posición coincide con el GPS del checklist.</li></ol></div>`;
     if(sel.MOTIVO_OBS) h += `<div class="errors" style="margin:10px 0">Observado: ${esc(sel.MOTIVO_OBS)}</div>`;

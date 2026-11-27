@@ -36,6 +36,9 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ahora = () => new Date().toISOString();
+// Hora de la descarga de prueba: la de la foto del DISPLAY, para que Soporte la busque en AGDP Web sin que el técnico la escriba.
+const horaPrueba = f => { const it = ITEMS.find(x => x.prueba), c = it && f.cap[it.fotos[0][0]];
+  return c ? new Date(c.hora).toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'America/Argentina/Buenos_Aires'}) : (f.hora || ''); };
 const fechaCorta = iso => { if(!iso) return '—'; const d = new Date(iso); return isNaN(d) ? esc(String(iso)) : d.toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); };
 const kbDe = b64 => Math.round(b64.length * 3 / 4 / 1024);
 const nuevoId = () => 'pv-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
@@ -286,7 +289,6 @@ function formHTML(){
       const nota = kg === null || isNaN(kg) ? 'Ideal: 0 a 20 kg. Aceptable: menos de 40 kg.' : kg < 20 ? 'Ideal.' : kg < 40 ? 'Aceptable.' : 'Fuera de tolerancia: el resultado es Falla.';
       h += `<div class="field"><label>Kg que sumó el neto al abrir y cerrar el tubo <span class="req">*</span></label><input type="number" min="0" inputmode="numeric" data-f="kgFantasma" value="${esc(f.kgFantasma ?? '')}"><div class="hint ${kg !== null && kg >= 40 ? 'warn' : ''}" id="kgNota">${nota}</div></div>`;
     }
-    if(it.prueba) h += `<div class="field"><label>Hora de la descarga de prueba <span class="req">*</span></label><input type="text" inputmode="numeric" placeholder="hh:mm" data-f="hora" value="${esc(f.hora || '')}"><div class="hint">Soporte la busca en AGDP Web con esta hora y el BTH.</div></div>`;
     if(r !== 'NA'){
       it.fotos.forEach(([k, lbl]) => {
         const c = f.cap[k];
@@ -348,7 +350,6 @@ function requisitos(){
       a(!(f.kgFantasma === undefined || f.kgFantasma === '' || isNaN(kg) || kg < 0), 'cargar los kg que sumó el neto');
       if(r === 'OK' && kg >= 40) add(false, n, 'corregir el resultado (con 40 kg o más es Falla)', `${p}: con 40 kg o más el resultado es Falla.`);
     }
-    if(it.prueba) a(/^\d{1,2}:\d{2}$/.test(f.hora || ''), 'la hora de la descarga (hh:mm)');
   });
   if(Object.values(f.r).includes('FALLA')) add((f.obs || '').trim(), 'obs', 'describir la falla en Observaciones', 'Hay una falla: describila en Observaciones.');
   if(f.r.carga === 'FALLA') add(f.repuestos.length, 'rep', 'marcar en Repuestos lo que se cambió', 'Carga de la tablet: marcá en Repuestos lo que se cambió.');
@@ -543,7 +544,7 @@ async function guardarCaso(){
   // Solo sube lo esperado (un ítem pasado a No aplica no manda sus fotos) y lo nuevo o vuelto a capturar.
   const nuevos = archivos.filter(a => claves.includes(a.clave) && f.enviadas[a.clave] !== a.c.hora);
   const checklist = {id:f.id, tipo:f.tipo, bth:f.bth, inicio:f.inicio, gps:f.gps, r:Object.fromEntries(itemsDe(f.tipo).map(it => [it.k, f.r[it.k] || ''])),
-    sellado:f.sellado || '', conecMovia:f.conecMovia || '', kgFantasma:f.kgFantasma ?? '', hora:f.hora || '', repuestos:f.repuestos, obs:f.obs || '', recibe:f.recibe || '',
+    sellado:f.sellado || '', conecMovia:f.conecMovia || '', kgFantasma:f.kgFantasma ?? '', hora:horaPrueba(f), repuestos:f.repuestos, obs:f.obs || '', recibe:f.recibe || '',
     claves, parcial, faltantes: falta};
   let m = S.mios.find(x => x.id === f.id);
   if(!m){ m = {id:f.id, bth:f.bth, inicio:f.inicio, subidas:[]}; S.mios.push(m); }
